@@ -21,54 +21,11 @@
 (require 'company-capf)
 (require 'boogie-friends)
 
-;;; Customization
-
 (defgroup lsp-dafny nil
-  "Options for dafny-mode's LSP support."
-  :group 'lsp
-  :prefix "lsp-dafny"
-  :link '(url-link "https://github.com/dafny-lang/dafny/"))
-
-;;;; Installation options
-
-(defconst lsp-dafny-latest-known-version "3.9.0")
-
-(defun lsp-dafny--version-safe-p (vernum)
-  "Check whether VERNUM is a safe value for `lsp-dafny-preferred-version'."
-  (or (null vernum)
-      (stringp vernum)))
-
-(defcustom lsp-dafny-preferred-version nil
-  "Which version of Dafny to run."
-  :safe #'lsp-dafny--version-safe-p
-  :type '(choice (const :tag "Auto-install the latest version" nil)
-                 (choice :tag "Auto-install a specific version"
-                         (const "3.9.0")
-                         (const "3.8.1")
-                         (const "3.8.0")
-                         (const "3.7.3")
-                         (const "3.7.2")
-                         (const "3.7.1")
-                         (const "3.7.0")
-                         (const "3.6.0")
-                         (const "3.5.0")
-                         (const "3.4.2")
-                         (const "3.4.1")
-                         (const "3.4.0")
-                         (const "3.3.0")
-                         (const "3.2.0")
-                         (const "3.1.0")
-                         (const "3.0.0")
-                         (string :tag "Other version"))
-                 (const :tag "Find Dafny in your PATH" path)
-                 (list :tag "Use a custom Dafny installation"
-                       (directory :tag "Dafny installation directory"))))
-
-(defcustom lsp-dafny-server-install-root
-  (expand-file-name "dafny" lsp-server-install-dir)
-  "Where to install Dafny servers."
-  :risky t
-  :type 'directory)
+  "LSP support for Dafny, using dafny lsp"
+  :group 'lsp-mode
+  :link '(url-link "https://github.com/dafny-lang/dafny")
+  :package-version `(lsp-mode . "9.0.1"))
 
 ;;;; Server options
 
@@ -124,85 +81,6 @@
 ;;; LSP setup
 
 ;;;; Server installation
-
-(defun lsp-dafny-resolve-preferred-version ()
-  "Validate `lsp-dafny-preferred-version', returning a default if unset.
-
-Returns a value permitted by `lsp-dafny-preferred-version', but
-not nil."
-  (pcase (or lsp-dafny-preferred-version lsp-dafny-latest-known-version)
-    (`path `path)
-    ((and v (pred stringp))
-     (condition-case err
-         (progn (version-to-list v) v)
-       (err (user-error "Invalid `lsp-dafny-preferred-version': %S
-%S" v (cdr err)))))
-     (`(,v)
-      (if (file-exists-p v) (list v)
-        (user-error "Invalid `lsp-dafny-preferred-version': %S
-Directory %s does not exist" v)))
-     (_ (user-error "Invalid `lsp-dafny-preferred-version': %S"))))
-
-(defun lsp-dafny-server-install-dir (&optional vernum)
-  "Compute the path to Dafny's installation folder for version VERNUM.
-
-VERNUM defaults to `lsp-dafny-preferred-version'.  Returns either
-a directory name, or nil if VERNUM is `path'."
-  (pcase (or vernum (lsp-dafny-resolve-preferred-version))
-    ((and v (pred stringp))
-     (expand-file-name (format "v%s" v) lsp-dafny-server-install-root))
-    (`path `path)
-    (`(,v) v)))
-
-(defun lsp-dafny--installed-executable (executable)
-  "Compute the path to an installed Dafny EXECUTABLE."
-  (pcase (lsp-dafny-server-install-dir)
-    (`path executable)
-    (dir (expand-file-name executable dir))))
-
-(defun lsp-dafny--server-installed-executable ()
-  "Compute the path to the installed version of DafnyLanguageServer."
-  (lsp-dafny--installed-executable "DafnyLanguageServer"))
-
-(defun lsp-dafny--zip-url (vernum)
-  "Compute the URL to download Dafny version VERNUM."
-  (let ((platform
-         (pcase system-type
-           ((or `gnu `gnu/linux) "ubuntu-16.04")
-           ((or `windows-nt `cygwin) "win")
-           ((or `darwin) "osx-10.14.2")
-           (other "Unsupported platform %S" other))))
-    (format "%s/v%s/dafny-%s-x64-%s.zip"
-            "https://github.com/dafny-lang/dafny/releases/download"
-            vernum vernum platform)))
-
-(defun lsp-dafny--server-install-callback (root vernum callback)
-  "Install Dafny version VERNUM from ROOT/dafny and call CALLBACK."
-  (condition-case _
-      (rename-file (expand-file-name "dafny" root)
-                   (lsp-dafny-server-install-dir vernum))
-    (file-already-exists nil))
-  (funcall callback))
-
-(defun lsp-dafny--server-install (client callback error-callback update?)
-  "Download Dafny and install it to `lsp-dafny-server-install-dir'.
-
-Version installed is determined by `lsp-dafny-preferred-version'.
-
-Call CALLBACK on success; call ERROR-CALLBACK otherwise.
-CLIENT and UPDATE? are ignored."
-  (ignore client update?)
-  (let* ((root lsp-dafny-server-install-root)
-         (vernum (lsp-dafny-resolve-preferred-version))
-         (dl-dir (lsp-dafny-server-install-dir vernum)))
-    (make-directory dl-dir t)
-    (lsp-download-install
-     (apply-partially
-      #'lsp-dafny--server-install-callback root vernum callback)
-     error-callback
-     :url (lsp-dafny--zip-url vernum)
-     :store-path dl-dir
-     :decompress :zip)))
 
 ;;;; Overrides
 
@@ -554,39 +432,15 @@ Prefix each line with INDENT."
   (if (executable-find executable) executable
     (user-error "Binary not found: %s" executable)))
 
-(defun lsp-dafny--server-command ()
-  "Compute the command to run Dafny's LSP server."
-  `(,(lsp-dafny-ensure-executable (lsp-dafny--server-installed-executable))
-    ,(pcase lsp-dafny-server-automatic-verification-policy
-       ((and policy (or `never `onchange `onsave))
-        (format "--documents:verify=%S" policy))
-       (other (user-error "Invalid value %S in \
-`lsp-dafny-server-automatic-verification-policy'" other)))
-    ,@(pcase lsp-dafny-server-verification-time-limit
-       (`nil nil)
-       ((and limit (pred integerp))
-        (list (format "--verifier:timelimit=%d" limit)))
-       (other (user-error "Invalid value %S in \
-`lsp-dafny-server-verification-time-limit'" other)))
-    ,@lsp-dafny-server-args))
+(lsp-register-client
+ (make-lsp-client :new-connection (lsp-stdio-connection '("dafny" "server"))
+                  :activation-fn (lsp-activate-on "dafny")
+                  :notification-handlers lsp-dafny--notification-handlers
+                  :server-id 'dafny))
 
-;;;###autoload
-(defun lsp-dafny-register ()
-  "Register the Dafny LSP server with `lsp-mode'."
-  (add-to-list 'lsp-language-id-configuration
-               '(dafny-mode . "dafny"))
-  (lsp-register-client
-   (make-lsp-client
-    :new-connection (lsp-stdio-connection #'lsp-dafny--server-command)
-    :activation-fn (lsp-activate-on "dafny")
-    :server-id 'dafny
-    :download-server-fn #'lsp-dafny--server-install
-    :notification-handlers lsp-dafny--notification-handlers
-    :after-open-fn #'lsp-dafny--mode)))
+(lsp-consistency-check lsp-dafny)
 
-;;;###autoload
-(with-eval-after-load 'lsp-mode
-  (lsp-dafny-register))
+(add-to-list 'lsp-language-id-configuration '(dafny-mode . "dafny"))
 
 (provide 'lsp-dafny)
 ;;; lsp-dafny.el ends here
